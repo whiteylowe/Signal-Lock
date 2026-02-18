@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signal Lock - Monocular</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Rajdhani:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: #000000;
+            color: #00dcff;
+            overflow: hidden;
+            cursor: none;
+        }
+
+        /* Force cursor: none on all interactive elements */
+        button, a, .menu-option, .scroll-arrow svg, * {
+            cursor: none !important;
+        }
+
+        /* Glasses Frame Container */
+        .glasses-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 10000;
+        }
+
+        /* Smart Camera Circle (top left) */
+        .camera-circle {
+            position: absolute;
+            top: 80px;
+            left: 80px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #1a1a1a, #000);
+            border: 2px solid #333;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8);
+        }
+
+        /* Auxiliary Dot Light */
+        .aux-dot {
+            position: absolute;
+            top: 138px;
+            left: 68px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00dcff;
+            box-shadow: 0 0 8px rgba(0, 220, 255, 0.8), 0 0 16px rgba(0, 220, 255, 0.4);
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+
+        .aux-dot.active {
+            opacity: 1;
+            animation: breathe 2s ease-in-out infinite;
+        }
+
+        @keyframes breathe {
+            0%, 100% { 
+                opacity: 0.8;
+                transform: scale(1);
+                box-shadow: 0 0 10px rgba(0, 220, 255, 0.9), 0 0 20px rgba(0, 220, 255, 0.5);
+            }
+            50% { 
+                opacity: 1;
+                transform: scale(1.15);
+                box-shadow: 0 0 15px rgba(0, 220, 255, 1), 0 0 30px rgba(0, 220, 255, 0.7);
+            }
+        }
+
+        .aux-dot.react {
+            animation: react-pulse 0.2s ease-out;
+        }
+
+        @keyframes react-pulse {
+            0% { transform: scale(1); opacity: 1; }
+            30% { transform: scale(1.6); opacity: 1; }
+            100% { transform: scale(1); opacity: 0.8; }
+        }
+
+        /* Lens Boundary - The Monocular View */
+        .lens-boundary {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 500px;
+            height: 400px;
+            border: 2px solid rgba(0, 220, 255, 0.3);
+            border-radius: 8px;
+            pointer-events: auto;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        /* Canvas inside lens */
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Custom Cursor - Gaze Glint */
+        .cursor-glint {
+            position: fixed;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 220, 255, 1) 0%, rgba(0, 180, 255, 0.6) 50%, transparent 100%);
+            pointer-events: none;
+            z-index: 10001;
+            box-shadow: 0 0 10px rgba(0, 220, 255, 0.9);
+            animation: glint-flicker 3s infinite;
+        }
+
+        @keyframes glint-flicker {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.95; }
+            51% { opacity: 0.98; }
+            52% { opacity: 1; }
+        }
+
+        /* Simple Circular Reticle with Gaze Glint */
+        .reticle {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 1.5px solid rgba(0, 220, 255, 0.6);
+            border-radius: 50%;
+            pointer-events: none;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: reticle-subtle-pulse 4s infinite;
+        }
+
+        @keyframes reticle-subtle-pulse {
+            0%, 100% { 
+                opacity: 0.8;
+                transform: translate(-50%, -50%) scale(1);
+            }
+            50% { 
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1.05);
+            }
+        }
+
+        .reticle.locked {
+            border-color: rgba(0, 255, 150, 0.8);
+            box-shadow: 0 0 15px rgba(0, 255, 150, 0.5);
+        }
+
+        .reticle.action-mode {
+            border-color: rgba(200, 0, 255, 0.9);
+            border-radius: 4px; /* Square shape instead of circle */
+            box-shadow: 0 0 15px rgba(200, 0, 255, 0.6);
+            animation: action-pulse 1s infinite;
+        }
+
+        @keyframes action-pulse {
+            0%, 100% { 
+                opacity: 0.9;
+                transform: translate(-50%, -50%) scale(1);
+                border-color: rgba(200, 0, 255, 0.9);
+            }
+            50% { 
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1.1);
+                border-color: rgba(255, 0, 255, 1);
+            }
+        }
+
+        /* Reticle center gaze glint */
+        .reticle::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 6px;
+            height: 6px;
+            background: rgba(0, 220, 255, 0.9);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 8px rgba(0, 220, 255, 0.8);
+        }
+
+        /* Menu Container */
+        .menu-container {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 340px;
+            background: rgba(0, 20, 30, 0.85);
+            border: 1px solid rgba(0, 220, 255, 0.4);
+            border-radius: 4px;
+            padding: 16px 20px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .menu-container.active {
+            opacity: 1;
+        }
+
+        /* Scroll Arrow */
+        .scroll-arrow {
+            text-align: center;
+            height: 16px;
+            margin: 4px 0;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .scroll-arrow.visible {
+            opacity: 1;
+        }
+
+        .scroll-arrow svg {
+            width: 20px;
+            height: 12px;
+            fill: none;
+            stroke: rgba(0, 220, 255, 0.7);
+            stroke-width: 2;
+            transition: stroke 0.2s;
+        }
+
+        .scroll-arrow svg:hover {
+            stroke: rgba(0, 220, 255, 1);
+        }
+
+        /* Menu Options */
+        .menu-options {
+            max-height: 160px;
+            overflow: hidden;
+        }
+
+        .menu-option {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            margin: 4px 0;
+            background: rgba(0, 40, 60, 0.5);
+            border: 1px solid rgba(0, 220, 255, 0.3);
+            border-radius: 2px;
+            transition: all 0.2s;
+            font-size: 15px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+        }
+
+        .menu-option:hover {
+            background: rgba(0, 60, 90, 0.7);
+            border-color: rgba(0, 220, 255, 0.6);
+            transform: translateX(4px);
+        }
+
+        .menu-option-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .menu-option-icon svg {
+            width: 100%;
+            height: 100%;
+            fill: none;
+            stroke: #00dcff;
+            stroke-width: 2;
+        }
+
+        /* Loading Bar */
+        .loading-bar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 340px;
+            height: 3px;
+            background: rgba(0, 40, 60, 0.5);
+            border-radius: 2px;
+            overflow: hidden;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .loading-bar.active {
+            opacity: 1;
+        }
+
+        .loading-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, 
+                rgba(0, 180, 255, 0.6) 0%, 
+                rgba(0, 220, 255, 0.9) 50%, 
+                rgba(0, 180, 255, 0.6) 100%);
+            box-shadow: 0 0 12px rgba(0, 220, 255, 0.8);
+            transition: width 0.3s ease-out;
+        }
+
+        /* Scan Report Readout */
+        .scan-report {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 340px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .scan-report.active {
+            opacity: 1;
+            animation: scan-report-appear 0.4s ease-out;
+        }
+
+        @keyframes scan-report-appear {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+
+        .scan-results {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .scan-result-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 10px;
+            background: rgba(0, 40, 60, 0.6);
+            border-left: 2px solid rgba(0, 220, 255, 0.8);
+        }
+
+        .scan-result-label {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            min-width: 20px;
+            color: rgba(0, 220, 255, 1);
+        }
+
+        .scan-result-value {
+            font-size: 12px;
+            font-weight: 400;
+            color: rgba(255, 255, 255, 0.9);
+            flex: 1;
+        }
+
+        .scan-bar-graph {
+            width: 60px;
+            height: 6px;
+            background: rgba(0, 40, 60, 0.8);
+            border: 1px solid rgba(0, 220, 255, 0.4);
+            margin-left: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .scan-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, rgba(0, 220, 255, 0.6), rgba(0, 220, 255, 0.9));
+            transition: width 0.6s ease-out;
+        }
+
+        /* HUD Elements */
+        .hud-corner-text {
+            position: absolute;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 1px;
+            color: rgba(0, 220, 255, 0.7);
+            font-family: 'Orbitron', monospace;
+        }
+
+        .hud-corner-text.top-left {
+            top: 12px;
+            left: 12px;
+        }
+
+        .hud-corner-text.top-right {
+            top: 12px;
+            right: 12px;
+        }
+
+        /* Splash Screen */
+        .splash-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 20000;
+            opacity: 1;
+            transition: opacity 0.5s;
+        }
+
+        .splash-screen.fade-out {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .splash-content {
+            text-align: center;
+        }
+
+        .splash-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 48px;
+            font-weight: 700;
+            color: #00dcff;
+            letter-spacing: 4px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px rgba(0, 220, 255, 0.6);
+            animation: splash-glow 2s ease-in-out infinite;
+        }
+
+        @keyframes splash-glow {
+            0%, 100% { text-shadow: 0 0 20px rgba(0, 220, 255, 0.6); }
+            50% { text-shadow: 0 0 30px rgba(0, 220, 255, 0.9); }
+        }
+
+        .splash-subtitle {
+            font-size: 18px;
+            font-weight: 400;
+            color: rgba(0, 220, 255, 0.7);
+            letter-spacing: 2px;
+        }
+
+        /* Signal Dots */
+        .signal-dot {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #00dcff;
+            box-shadow: 0 0 15px rgba(0, 220, 255, 0.8);
+            pointer-events: none;
+        }
+
+        /* Hover feedback */
+        .menu-option.hover-active {
+            background: rgba(0, 80, 120, 0.8);
+            border-color: rgba(0, 220, 255, 0.9);
+        }
+
+        /* Revealed target dots */
+        .target-dot {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            pointer-events: none;
+            box-shadow: 0 0 12px;
+        }
+
+        .target-dot.friendly {
+            background: rgba(0, 255, 150, 0.8);
+            box-shadow: 0 0 12px rgba(0, 255, 150, 0.6);
+        }
+
+        .target-dot.neutral {
+            background: rgba(255, 180, 0, 0.8);
+            box-shadow: 0 0 12px rgba(255, 180, 0, 0.6);
+        }
+    </style>
+</head>
+<body>
+    <!-- Splash Screen -->
+    <div class="splash-screen" id="splashScreen">
+        <div class="splash-content">
+            <div class="splash-title">SIGNAL LOCK</div>
+            <div class="splash-subtitle">INITIALIZING SYSTEM</div>
+        </div>
+    </div>
+
+    <!-- Glasses Frame with Camera and Aux Dot -->
+    <div class="glasses-container">
+        <div class="camera-circle"></div>
+        <div class="aux-dot" id="auxDot"></div>
+    </div>
+
+    <!-- Monocular Lens Boundary -->
+    <div class="lens-boundary" id="lensBoundary">
+        <canvas id="canvas"></canvas>
+        
+        <!-- Reticle (simple circle with gaze glint) -->
+        <div class="reticle" id="reticle"></div>
+
+        <!-- HUD Corner Text -->
+        <div class="hud-corner-text top-left" id="hudTopLeft">SCANS: 0</div>
+        <div class="hud-corner-text top-right" id="hudTopRight">STRIKES: 0</div>
+
+        <!-- Scan Report Readout -->
+        <div class="scan-report" id="scanReport">
+            <div class="scan-results" id="scanResults"></div>
+        </div>
+
+        <!-- Target Dots Container -->
+        <div id="targetDotsContainer"></div>
+
+        <!-- Loading Bar (bottom only) -->
+        <div class="loading-bar" id="loadingBar">
+            <div class="loading-fill" id="loadingFill"></div>
+        </div>
+
+        <!-- Menu Container -->
+        <div class="menu-container" id="menuContainer">
+            <!-- Up Arrow -->
+            <div class="scroll-arrow" id="scrollUp">
+                <svg viewBox="0 0 20 12">
+                    <polyline points="2,10 10,2 18,10" />
+                </svg>
+            </div>
+
+            <!-- Menu Options (scrollable) -->
+            <div class="menu-options" id="menuOptions">
+                <div class="menu-option" data-action="bioscan">
+                    <div class="menu-option-icon">
+                        <svg viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 6 L12 18 M6 12 L18 12"/>
+                        </svg>
+                    </div>
+                    <span>BIO SCAN</span>
+                </div>
+                <div class="menu-option" data-action="orbital">
+                    <div class="menu-option-icon">
+                        <svg viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="8"/>
+                            <path d="M12 2 L12 22 M2 12 L22 12"/>
+                        </svg>
+                    </div>
+                    <span>ORBITAL SCAN</span>
+                </div>
+                <div class="menu-option" data-action="dispatch-recon">
+                    <div class="menu-option-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 2 L20 20 L12 16 L4 20 Z"/>
+                        </svg>
+                    </div>
+                    <span>DISPATCH RECON</span>
+                </div>
+                <div class="menu-option" data-action="dispatch-sensor">
+                    <div class="menu-option-icon">
+                        <svg viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="6"/>
+                            <circle cx="6" cy="6" r="2"/>
+                            <circle cx="18" cy="6" r="2"/>
+                            <circle cx="6" cy="18" r="2"/>
+                            <circle cx="18" cy="18" r="2"/>
+                        </svg>
+                    </div>
+                    <span>DISPATCH SENSOR</span>
+                </div>
+                <div class="menu-option" data-action="dispatch-strike">
+                    <div class="menu-option-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 2 L16 16 L12 14 L8 16 Z"/>
+                            <path d="M6 16 L2 20 M18 16 L22 20"/>
+                        </svg>
+                    </div>
+                    <span>DISPATCH STRIKE</span>
+                </div>
+                <div class="menu-option" data-action="abort">
+                    <div class="menu-option-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M6 6 L18 18 M18 6 L6 18"/>
+                        </svg>
+                    </div>
+                    <span>ABORT</span>
+                </div>
+            </div>
+
+            <!-- Down Arrow -->
+            <div class="scroll-arrow" id="scrollDown">
+                <svg viewBox="0 0 20 12">
+                    <polyline points="2,2 10,10 18,2" />
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Cursor -->
+    <div class="cursor-glint" id="cursorGlint"></div>
+
+    <script>
+        // System State
+        let systemState = 'idle'; // idle, scanning, acquiring, locked, action-mode
+        let scansCount = 0;
+        let strikesCount = 0;
+        let currentMenuScroll = 0;
+        let menuVisible = false;
+        let reticleTarget = null;
+        let signalDots = [];
+        let scanRings = [];
+        let targetDots = [];
+        let deployments = [];
+        let pendingAction = null;
+        let dashOffset = 0;
+
+        // DOM Elements
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const lensBoundary = document.getElementById('lensBoundary');
+        const reticle = document.getElementById('reticle');
+        const cursorGlint = document.getElementById('cursorGlint');
+        const auxDot = document.getElementById('auxDot');
+        const menuContainer = document.getElementById('menuContainer');
+        const menuOptions = document.getElementById('menuOptions');
+        const scrollUp = document.getElementById('scrollUp');
+        const scrollDown = document.getElementById('scrollDown');
+        const loadingBar = document.getElementById('loadingBar');
+        const loadingFill = document.getElementById('loadingFill');
+        const scanReport = document.getElementById('scanReport');
+        const scanResults = document.getElementById('scanResults');
+        const hudTopLeft = document.getElementById('hudTopLeft');
+        const hudTopRight = document.getElementById('hudTopRight');
+        const splashScreen = document.getElementById('splashScreen');
+        const targetDotsContainer = document.getElementById('targetDotsContainer');
+
+        // Setup canvas size
+        function resizeCanvas() {
+            const rect = lensBoundary.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Splash screen initialization
+        setTimeout(() => {
+            splashScreen.classList.add('fade-out');
+            auxDot.classList.add('active');
+            setTimeout(() => {
+                splashScreen.style.display = 'none';
+            }, 500);
+        }, 2500);
+
+        // Cursor tracking
+        document.addEventListener('mousemove', (e) => {
+            cursorGlint.style.left = e.clientX + 'px';
+            cursorGlint.style.top = e.clientY + 'px';
+
+            // Update reticle position (relative to lens)
+            const rect = lensBoundary.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
+                reticle.style.left = x + 'px';
+                reticle.style.top = y + 'px';
+            }
+        });
+
+        // Generate signal dots
+        function generateSignalDots() {
+            signalDots = [];
+            const rect = lensBoundary.getBoundingClientRect();
+            for (let i = 0; i < 4; i++) {
+                signalDots.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    vx: (Math.random() - 0.5) * 0.8,
+                    vy: (Math.random() - 0.5) * 0.8,
+                    pulsePhase: Math.random() * Math.PI * 2
+                });
+            }
+        }
+        generateSignalDots();
+
+        // Menu scrolling
+        const menuItems = Array.from(menuOptions.querySelectorAll('.menu-option'));
+        const visibleItems = 3;
+        
+        function updateMenuScroll() {
+            const maxScroll = Math.max(0, menuItems.length - visibleItems);
+            
+            menuItems.forEach((item, index) => {
+                if (index >= currentMenuScroll && index < currentMenuScroll + visibleItems) {
+                    item.style.display = 'flex';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+
+            scrollUp.classList.toggle('visible', currentMenuScroll > 0);
+            scrollDown.classList.toggle('visible', currentMenuScroll < maxScroll);
+        }
+
+        scrollUp.addEventListener('click', () => {
+            if (currentMenuScroll > 0) {
+                currentMenuScroll--;
+                updateMenuScroll();
+                reactAuxDot();
+            }
+        });
+
+        scrollDown.addEventListener('click', () => {
+            const maxScroll = Math.max(0, menuItems.length - visibleItems);
+            if (currentMenuScroll < maxScroll) {
+                currentMenuScroll++;
+                updateMenuScroll();
+                reactAuxDot();
+            }
+        });
+
+        // Menu option click handlers
+        menuItems.forEach(item => {
+            item.addEventListener('click', () => {
+                const action = item.dataset.action;
+                handleMenuAction(action);
+                reactAuxDot();
+            });
+
+            item.addEventListener('mouseenter', () => {
+                item.classList.add('hover-active');
+            });
+
+            item.addEventListener('mouseleave', () => {
+                item.classList.remove('hover-active');
+            });
+        });
+
+        // Aux dot reaction
+        function reactAuxDot() {
+            auxDot.classList.add('react');
+            setTimeout(() => {
+                auxDot.classList.remove('react');
+            }, 300);
+        }
+
+        // Menu actions
+        function handleMenuAction(action) {
+            if (action === 'abort') {
+                abortOperation();
+                hideMenu();
+            } else {
+                // ALL actions now require location selection
+                pendingAction = action;
+                systemState = 'action-mode';
+                reticle.classList.add('action-mode');
+                hideMenu();
+                reactAuxDot();
+            }
+        }
+
+        // Handle location selection for actions
+        lensBoundary.addEventListener('click', (e) => {
+            if (isLongPressing) return; // Don't trigger on long press
+            
+            if (systemState === 'action-mode' && pendingAction) {
+                const rect = lensBoundary.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                executeAction(pendingAction, x, y);
+                
+                // Exit action mode
+                pendingAction = null;
+                systemState = 'idle';
+                reticle.classList.remove('action-mode');
+                reactAuxDot();
+            }
+        });
+
+        // Show/hide menu
+        function showMenu() {
+            menuVisible = true;
+            menuContainer.classList.add('active');
+            currentMenuScroll = 0;
+            updateMenuScroll();
+        }
+
+        function hideMenu() {
+            menuVisible = false;
+            menuContainer.classList.remove('active');
+        }
+
+        // Long press to show menu
+        let longPressTimer = null;
+        let isLongPressing = false;
+
+        lensBoundary.addEventListener('mousedown', (e) => {
+            longPressTimer = setTimeout(() => {
+                isLongPressing = true;
+                if (!menuVisible) {
+                    showMenu();
+                    reactAuxDot();
+                }
+            }, 500);
+        });
+
+        lensBoundary.addEventListener('mouseup', () => {
+            clearTimeout(longPressTimer);
+            setTimeout(() => {
+                isLongPressing = false;
+            }, 100);
+        });
+
+        lensBoundary.addEventListener('mouseleave', () => {
+            clearTimeout(longPressTimer);
+        });
+
+        // Right-click to show menu
+        lensBoundary.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (!menuVisible) {
+                showMenu();
+                reactAuxDot();
+            } else {
+                hideMenu();
+            }
+        });
+
+        // Loading bar functions
+        function showLoadingBar(duration = 2000) {
+            loadingBar.classList.add('active');
+            loadingFill.style.transition = 'none';
+            loadingFill.style.width = '0%';
+            
+            setTimeout(() => {
+                loadingFill.style.transition = `width ${duration}ms linear`;
+                loadingFill.style.width = '100%';
+            }, 50);
+            
+            setTimeout(() => {
+                loadingBar.classList.remove('active');
+                loadingFill.style.width = '0%';
+            }, duration + 100);
+        }
+
+        // Scan report
+        function showScanReport(data) {
+            scanResults.innerHTML = '';
+            data.forEach(item => {
+                const bar = document.createElement('div');
+                bar.className = 'scan-result-bar';
+                
+                let barGraphHTML = '';
+                if (item.bar !== null && item.bar !== undefined) {
+                    barGraphHTML = `
+                        <div class="scan-bar-graph">
+                            <div class="scan-bar-fill" style="width: ${item.bar * 100}%"></div>
+                        </div>
+                    `;
+                }
+                
+                bar.innerHTML = `
+                    <div class="scan-result-label">${item.abbr}</div>
+                    <div class="scan-result-value">${item.value}</div>
+                    ${barGraphHTML}
+                `;
+                scanResults.appendChild(bar);
+            });
+            
+            scanReport.classList.add('active');
+            
+            setTimeout(() => {
+                scanReport.classList.remove('active');
+            }, 4000);
+        }
+
+        // Create revealed target dot
+        function revealTargetDot(x, y, type = 'friendly') {
+            const dot = document.createElement('div');
+            dot.className = `target-dot ${type}`;
+            dot.style.left = x + 'px';
+            dot.style.top = y + 'px';
+            targetDotsContainer.appendChild(dot);
+            
+            targetDots.push({ element: dot, alpha: 1 });
+            
+            // Fade out after 3 seconds
+            setTimeout(() => {
+                dot.style.transition = 'opacity 1s';
+                dot.style.opacity = '0';
+                setTimeout(() => {
+                    dot.remove();
+                    targetDots = targetDots.filter(d => d.element !== dot);
+                }, 1000);
+            }, 3000);
+        }
+
+        function executeAction(action, targetX, targetY) {
+            if (action === 'bioscan') {
+                performBioScan(targetX, targetY);
+            } else if (action === 'orbital') {
+                performOrbitalScan(targetX, targetY);
+            } else if (action.startsWith('dispatch-')) {
+                performDispatch(action, targetX, targetY);
+            }
+        }
+
+        // Operations
+        function performBioScan(targetX, targetY) {
+            systemState = 'scanning';
+            showLoadingBar(2000);
+            
+            scanRings.push({
+                x: targetX,
+                y: targetY,
+                radius: 0,
+                alpha: 1,
+                maxRadius: 120
+            });
+            
+            // Reveal a target dot
+            const dotX = targetX + (Math.random() - 0.5) * 80;
+            const dotY = targetY + (Math.random() - 0.5) * 80;
+            const dotType = Math.random() > 0.5 ? 'friendly' : 'neutral';
+            
+            setTimeout(() => {
+                scansCount++;
+                hudTopLeft.textContent = `SCANS: ${scansCount}`;
+                
+                revealTargetDot(dotX, dotY, dotType);
+                
+                // Generate random bioscan data for bar graph
+                const heartRate = 60 + Math.floor(Math.random() * 40);
+                const temperature = 97 + Math.random() * 2;
+                const oxygenLevel = 95 + Math.floor(Math.random() * 5);
+                
+                showScanReport([
+                    { abbr: 'T', value: 'BIOLOGICAL', bar: null },
+                    { abbr: 'H', value: `${heartRate} BPM`, bar: heartRate / 100 },
+                    { abbr: 'T', value: `${temperature.toFixed(1)}°F`, bar: (temperature - 96) / 4 },
+                    { abbr: 'O', value: `${oxygenLevel}%`, bar: oxygenLevel / 100 }
+                ]);
+                
+                systemState = 'idle';
+            }, 2000);
+        }
+
+        function performOrbitalScan(targetX, targetY) {
+            systemState = 'scanning';
+            showLoadingBar(2500);
+            
+            // Create scan ring at target
+            scanRings.push({
+                x: targetX,
+                y: targetY,
+                radius: 0,
+                alpha: 1,
+                maxRadius: 150
+            });
+            
+            // Reveal multiple target dots
+            setTimeout(() => {
+                for (let i = 0; i < 3; i++) {
+                    const angle = (i / 3) * Math.PI * 2;
+                    const distance = 60 + Math.random() * 40;
+                    const x = targetX + Math.cos(angle) * distance;
+                    const y = targetY + Math.sin(angle) * distance;
+                    const type = Math.random() > 0.6 ? 'friendly' : 'neutral';
+                    revealTargetDot(x, y, type);
+                }
+                
+                scansCount++;
+                hudTopLeft.textContent = `SCANS: ${scansCount}`;
+                
+                showScanReport([
+                    { abbr: 'R', value: '2.4 KM', bar: null },
+                    { abbr: 'S', value: '12 DETECTED', bar: null },
+                    { abbr: 'T', value: 'NONE', bar: null }
+                ]);
+                
+                systemState = 'idle';
+            }, 2500);
+        }
+
+        function performDispatch(action, targetX, targetY) {
+            showLoadingBar(1500);
+            
+            // Create deployment
+            const deployment = {
+                type: action.replace('dispatch-', ''),
+                targetX: targetX,
+                targetY: targetY,
+                progress: 0,
+                arrived: false,
+                pulsePhase: 0,
+                paths: []
+            };
+            
+            deployments.push(deployment);
+            
+            setTimeout(() => {
+                if (action === 'dispatch-strike') {
+                    strikesCount++;
+                    hudTopRight.textContent = `STRIKES: ${strikesCount}`;
+                }
+                
+                const typeNames = {
+                    'recon': 'RECON',
+                    'sensor': 'SENSOR',
+                    'strike': 'STRIKE'
+                };
+                
+                showScanReport([
+                    { abbr: 'U', value: `${typeNames[deployment.type]} DEPLOYED`, bar: null },
+                    { abbr: 'S', value: 'EN ROUTE', bar: null }
+                ]);
+            }, 1500);
+        }
+
+        function abortOperation() {
+            systemState = 'idle';
+            pendingAction = null;
+            reticle.classList.remove('action-mode');
+            deployments = [];
+            showScanReport([
+                { abbr: 'S', value: 'ABORTED' }
+            ]);
+        }
+
+        // Render loop
+        function render() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Update dash offset for animated trajectories
+            dashOffset += 1;
+
+            // Draw signal dots (moving locations)
+            signalDots.forEach(dot => {
+                dot.x += dot.vx;
+                dot.y += dot.vy;
+                
+                if (dot.x < 10 || dot.x > canvas.width - 10) dot.vx *= -1;
+                if (dot.y < 10 || dot.y > canvas.height - 10) dot.vy *= -1;
+                
+                dot.pulsePhase += 0.05;
+                const pulseAlpha = Math.sin(dot.pulsePhase) * 0.3 + 0.7;
+                
+                // Make dots more visible
+                ctx.beginPath();
+                ctx.arc(dot.x, dot.y, 6, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(0, 220, 255, ${pulseAlpha * 0.9})`;
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(dot.x, dot.y, 10, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(0, 220, 255, ${pulseAlpha * 0.5})`;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            });
+
+            // Draw deployments with trajectories
+            deployments.forEach((deployment, index) => {
+                if (deployment.progress < 1) {
+                    deployment.progress += 0.01;
+                }
+                
+                // Trajectory origin points
+                const trajectoryOrigins = {
+                    'recon': { x: 0.15, y: 0.15, arc: 0.3 },
+                    'sensor': { x: 0.85, y: 0.15, arc: -0.3 },
+                    'strike': { x: 0.5, y: 0.05, arc: 0 }
+                };
+                
+                const config = trajectoryOrigins[deployment.type] || { x: 0.1, y: 0.1, arc: 0.5 };
+                const startX = config.x * canvas.width;
+                const startY = config.y * canvas.height;
+                
+                // Draw trajectory arc
+                if (deployment.progress < 1 || !deployment.arrived) {
+                    ctx.strokeStyle = deployment.type === 'recon' ? 
+                        'rgba(0, 255, 150, 0.5)' : 
+                        deployment.type === 'strike' ? 
+                        'rgba(255, 100, 100, 0.5)' :
+                        'rgba(0, 200, 255, 0.5)';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([10, 10]);
+                    ctx.lineDashOffset = -dashOffset;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    
+                    const cpX = (startX + deployment.targetX) / 2 + config.arc * 200;
+                    const cpY = (startY + deployment.targetY) / 2 - 100;
+                    ctx.quadraticCurveTo(cpX, cpY, deployment.targetX, deployment.targetY);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+                
+                // Calculate current position along arc
+                const t = deployment.progress;
+                const cpX = (startX + deployment.targetX) / 2 + config.arc * 200;
+                const cpY = (startY + deployment.targetY) / 2 - 100;
+                
+                const x = (1 - t) * (1 - t) * startX + 2 * (1 - t) * t * cpX + t * t * deployment.targetX;
+                const y = (1 - t) * (1 - t) * startY + 2 * (1 - t) * t * cpY + t * t * deployment.targetY;
+                
+                // Draw drone icon
+                ctx.save();
+                ctx.translate(x, y);
+                
+                const iconColor = deployment.type === 'recon' ? 
+                    'rgba(0, 255, 150, 0.9)' : 
+                    deployment.type === 'strike' ?
+                    'rgba(255, 100, 100, 0.9)' :
+                    'rgba(0, 220, 255, 0.9)';
+                ctx.strokeStyle = iconColor;
+                ctx.fillStyle = iconColor;
+                ctx.lineWidth = 2;
+                
+                if (deployment.type === 'sensor') {
+                    // Sensor drone - circle with satellites
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 8, 0, Math.PI * 2);
+                    ctx.stroke();
+                    
+                    [-12, 12].forEach(dx => {
+                        [-12, 12].forEach(dy => {
+                            ctx.beginPath();
+                            ctx.arc(dx, dy, 3, 0, Math.PI * 2);
+                            ctx.stroke();
+                            
+                            ctx.beginPath();
+                            ctx.moveTo(dx < 0 ? 4 : -4, dy < 0 ? 4 : -4);
+                            ctx.lineTo(dx, dy);
+                            ctx.stroke();
+                        });
+                    });
+                } else if (deployment.type === 'recon') {
+                    // Recon drone - triangle
+                    ctx.beginPath();
+                    ctx.moveTo(0, -12);
+                    ctx.lineTo(10, 10);
+                    ctx.lineTo(-10, 10);
+                    ctx.closePath();
+                    ctx.stroke();
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(-6, 4);
+                    ctx.lineTo(6, 4);
+                    ctx.stroke();
+                    
+                    for (let i = -1; i <= 1; i++) {
+                        ctx.beginPath();
+                        ctx.arc(i * 4, 0, 1.5, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                } else if (deployment.type === 'strike') {
+                    // Strike drone - missile
+                    ctx.beginPath();
+                    ctx.moveTo(0, -10);
+                    ctx.lineTo(3, 6);
+                    ctx.lineTo(-3, 6);
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(-5, 6);
+                    ctx.lineTo(-8, 10);
+                    ctx.moveTo(5, 6);
+                    ctx.lineTo(8, 10);
+                    ctx.stroke();
+                }
+                
+                ctx.restore();
+                
+                // Mark as arrived
+                if (deployment.progress >= 1 && !deployment.arrived) {
+                    deployment.arrived = true;
+                    deployment.pulsePhase = 0;
+                }
+                
+                // Draw arrival pulse
+                if (deployment.arrived) {
+                    deployment.pulsePhase += deployment.type === 'strike' ? 0.08 : 0.05;
+                    
+                    const pulseAlpha = Math.sin(deployment.pulsePhase) * 0.5 + 0.5;
+                    
+                    const color = deployment.type === 'recon' ? 
+                        `rgba(0, 255, 150, ${pulseAlpha * 0.5})` : 
+                        deployment.type === 'strike' ?
+                        `rgba(255, 100, 100, ${pulseAlpha * 0.6})` :
+                        `rgba(0, 200, 255, ${pulseAlpha * 0.5})`;
+                    
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(deployment.targetX, deployment.targetY, 30 + deployment.pulsePhase * 2, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            });
+
+            // Draw scan rings
+            scanRings = scanRings.filter(ring => {
+                ring.radius += 2.5;
+                ring.alpha -= 0.012;
+                
+                if (ring.alpha > 0) {
+                    ctx.strokeStyle = `rgba(0, 220, 255, ${ring.alpha * 0.8})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(ring.x, ring.y, ring.radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                    
+                    if (ring.radius < ring.maxRadius) {
+                        ctx.strokeStyle = `rgba(0, 200, 255, ${ring.alpha * 0.4})`;
+                        ctx.lineWidth = 1;
+                        for (let i = 0; i < 12; i++) {
+                            const angle = (i / 12) * Math.PI * 2;
+                            ctx.beginPath();
+                            ctx.moveTo(ring.x, ring.y);
+                            ctx.lineTo(
+                                ring.x + Math.cos(angle) * ring.radius,
+                                ring.y + Math.sin(angle) * ring.radius
+                            );
+                            ctx.stroke();
+                        }
+                    }
+                    
+                    return true;
+                }
+                return false;
+            });
+
+            requestAnimationFrame(render);
+        }
+
+        render();
+    </script>
+</body>
+</html>
